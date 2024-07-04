@@ -64,7 +64,7 @@ class RequestHandler(socketserver.StreamRequestHandler):
 				self._execDoneEvt.wait()
 				self._execDoneEvt.clear()
 
-		except:
+		except:  # noqa: E722
 			log.exception("Error handling remote Python console request")
 		finally:
 			# Clean up the console.
@@ -76,9 +76,9 @@ def initialize():
 	server.daemon_threads = True
 	thread = threading.Thread(
 		name=__name__,  # remotePythonConsole
-		target=server.serve_forever
+		target=server.serve_forever,
+		daemon=True,
 	)
-	thread.daemon = True
 	thread.start()
 
 def terminate():

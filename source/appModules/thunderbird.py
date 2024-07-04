@@ -4,11 +4,16 @@
 #This file is covered by the GNU General Public License.
 #See the file COPYING for more details.
 
+"""App module for Thunderbird email client."""
+
 import appModuleHandler
 import controlTypes
 import api
 import speech
 import winUser
+from NVDAObjects import NVDAObject
+from typing import Callable
+
 
 class AppModule(appModuleHandler.AppModule):
 
@@ -19,10 +24,20 @@ class AppModule(appModuleHandler.AppModule):
 				try:
 					# The document loading status is contained in the second field of the status bar.
 					statusText = statusBar.firstChild.next.name
-				except:
+				except:  # noqa: E722
 					# Fall back to reading the entire status bar.
 					statusText = api.getStatusBarText(statusBar)
 				speech.speakMessage(controlTypes.State.BUSY.displayString)
 				speech.speakMessage(statusText)
 				return
+		nextHandler()
+
+	def event_nameChange(self, obj: NVDAObject, nextHandler: Callable[[], None]) -> None:
+		focusObj: NVDAObject = api.getFocusObject()
+		if (
+			focusObj.windowClassName == "MozillaDropShadowWindowClass"
+			and focusObj.windowControlID == 0
+		):
+			# Report state changes in "select columns to display" menu
+			focusObj.event_stateChange()
 		nextHandler()

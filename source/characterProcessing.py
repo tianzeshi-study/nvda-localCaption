@@ -1,5 +1,5 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2010-2023 NV Access Limited, World Light Information Limited,
+# Copyright (C) 2010-2024 NV Access Limited, World Light Information Limited,
 # Hong Kong Blind Union, Babbage B.V., Julien Cochuyt, Cyrille Bougot
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
@@ -53,14 +53,14 @@ class LocaleDataMap(Generic[_LocaleDataT], object):
 		localeList=[locale]
 		if fallback and '_' in locale:
 			localeList.append(locale.split('_')[0])
-		for l in localeList:
+		for l in localeList:  # noqa: E741
 			data=self._dataMap.get(l)
-			if data: return data
+			if data: return data  # noqa: E701
 			try:
 				data=self._localeDataFactory(l)
 			except LookupError:
 				data=None
-			if not data: continue
+			if not data: continue  # noqa: E701
 			self._dataMap[l]=data
 			return data
 		raise LookupError(locale)
@@ -127,7 +127,7 @@ def getCharacterDescription(locale: str, character: str) -> Optional[List[str]]:
 	@return: the found description for the given character
 	"""
 	try:
-		l=_charDescLocaleDataMap.fetchLocaleData(locale)
+		l=_charDescLocaleDataMap.fetchLocaleData(locale)  # noqa: E741
 	except LookupError:
 		if not locale.startswith('en'):
 			return getCharacterDescription('en',character)
@@ -528,17 +528,18 @@ class SpeechSymbolProcessor(object):
 		multiChars.sort(key=lambda identifier: len(identifier), reverse=True)
 
 		# Build the regexp.
-		patterns = [
-			# Strip repeated spaces from the end of the line to stop them from being picked up by repeated.
-			r"(?P<rstripSpace>  +$)",
-			# Repeated characters: more than 3 repeats.
-			r"(?P<repeated>(?P<repTmp>%s)(?P=repTmp){3,})" % characters
-		]
+		patterns: list[str] = []
 		# Complex symbols.
 		# Each complex symbol has its own named group so we know which symbol matched.
 		patterns.extend(
 			u"(?P<c{index}>{pattern})".format(index=index, pattern=symbol.pattern)
 			for index, symbol in enumerate(complexSymbolsList))
+		patterns.extend([
+			# Strip repeated spaces from the end of the line to stop them from being picked up by repeated.
+			r"(?P<rstripSpace>  +$)",
+			# Repeated characters: more than 3 repeats.
+			r"(?P<repeated>(?P<repTmp>%s)(?P=repTmp){3,})" % characters
+		])
 		# Simple symbols.
 		# These are all handled in one named group.
 		# Because the symbols are just text, we know which symbol matched just by looking at the matched text.

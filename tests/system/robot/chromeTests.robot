@@ -91,12 +91,16 @@ ARIA roleDescription focus
 ARIA roleDescription inline browse mode
 	[Documentation]	Read an inline element with a custom role in browse mode
 	test_ariaRoleDescription_inline_browseMode
+	# Disabled due to chrome message "To get missing image descriptions, open the context menu."
+	[Tags]	excluded_from_build
 ARIA roleDescription block browse mode
 	[Documentation]	Read a block element with a custom role in browse mode
 	test_ariaRoleDescription_block_browseMode
+	# Disabled due to chrome message "To get missing image descriptions, open the context menu."
 ARIA roleDescription inline content editable
 	[Documentation]	Read an inline element with a custom role in content editables 
 	test_ariaRoleDescription_inline_contentEditable
+	[Tags]	excluded_from_build
 ARIA roleDescription block content editable
 	[Documentation]	Read an block element with a custom role in content editables 
 	test_ariaRoleDescription_block_contentEditable
@@ -156,3 +160,12 @@ ARIA switch role
 i13307
 	[Documentation]	ensure aria-labelledby on a landmark or region is automatically spoken when jumping inside from outside using focus in browse mode
 	test_i13307
+textParagraphNavigation
+	[Documentation]	Text paragraph navigation
+	test_textParagraphNavigation
+styleNav
+	[Documentation]	Same style navigation
+	test_styleNav
+aria-errormessage
+	[Documentation]	Test that aria-errormessage is reported correctly in focus and browse mode
+	test_ariaErrorMessage

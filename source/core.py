@@ -1,6 +1,6 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2006-2023 NV Access Limited, Aleksey Sadovoy, Christopher Toth, Joseph Lee, Peter Vágner,
-# Derek Riemer, Babbage B.V., Zahari Yurukov, Łukasz Golonka, Cyrille Bougot
+# Copyright (C) 2006-2024 NV Access Limited, Aleksey Sadovoy, Christopher Toth, Joseph Lee, Peter Vágner,
+# Derek Riemer, Babbage B.V., Zahari Yurukov, Łukasz Golonka, Cyrille Bougot, Julien Cochuyt
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
 
@@ -9,6 +9,7 @@
 
 from dataclasses import dataclass
 from typing import (
+	TYPE_CHECKING,
 	Any,
 	List,
 	Optional,
@@ -30,6 +31,9 @@ import extensionPoints
 import garbageHandler
 import NVDAState
 from NVDAState import WritePaths
+
+if TYPE_CHECKING:
+	import wx
 
 
 def __getattr__(attrName: str) -> Any:
@@ -181,7 +185,7 @@ def doStartupDialogs():
 				if ID in (wx.ID_YES,wx.ID_NO):
 					try:
 						config.conf.save()
-					except:
+					except:  # noqa: E722
 						pass
 			# Ask the user if usage stats can be collected.
 			gui.runScriptModalDialog(gui.startupDialogs.AskAllowUsageStatsDialog(None), onResult)
@@ -266,28 +270,38 @@ def resetConfiguration(factoryDefaults=False):
 	import config
 	import braille
 	import brailleInput
+	import brailleTables
 	import speech
 	import vision
 	import inputCore
 	import bdDetect
 	import hwIo
 	import tones
+	import audio
 	log.debug("Terminating vision")
 	vision.terminate()
 	log.debug("Terminating braille")
 	braille.terminate()
 	log.debug("Terminating brailleInput")
 	brailleInput.terminate()
+	log.debug("Terminating brailleTables")
+	brailleTables.terminate()
 	log.debug("terminating speech")
 	speech.terminate()
 	log.debug("terminating tones")
 	tones.terminate()
+	log.debug("terminating sound split")
+	audio.soundSplit.terminate()
 	log.debug("Terminating background braille display detection")
 	bdDetect.terminate()
 	log.debug("Terminating background i/o")
 	hwIo.terminate()
 	log.debug("terminating addonHandler")
 	addonHandler.terminate()
+	# Addons
+	from addonStore import dataManager
+	log.debug("terminating addon dataManager")
+	dataManager.terminate()
 	log.debug("Reloading config")
 	config.conf.reset(factoryDefaults=factoryDefaults)
 	logHandler.setLogLevelFromConfig()
@@ -298,8 +312,6 @@ def resetConfiguration(factoryDefaults=False):
 		lang = config.conf["general"]["language"]
 	log.debug("setting language to %s"%lang)
 	languageHandler.setLanguage(lang)
-	# Addons
-	from addonStore import dataManager
 	dataManager.initialize()
 	addonHandler.initialize()
 	# Hardware background i/o
@@ -309,10 +321,15 @@ def resetConfiguration(factoryDefaults=False):
 	bdDetect.initialize()
 	# Tones
 	tones.initialize()
+	# Sound split
+	log.debug("initializing sound split")
+	audio.soundSplit.initialize()
 	#Speech
 	log.debug("initializing speech")
 	speech.initialize()
 	#braille
+	log.debug("Initializing brailleTables")
+	brailleTables.initialize()
 	log.debug("Initializing brailleInput")
 	brailleInput.initialize()
 	log.debug("Initializing braille")
@@ -340,7 +357,7 @@ def _setInitialFocus():
 		focus = api.getDesktopObject().objectWithFocus()
 		if focus:
 			eventHandler.queueEvent('gainFocus', focus)
-	except:
+	except:  # noqa: E722
 		log.exception("Error retrieving initial focus")
 
 
@@ -527,6 +544,66 @@ def _doLoseFocus():
 			log.exception("Lose focus error")
 
 
+def _setUpWxApp() -> "wx.App":
+	import six
+	import wx
+
+	import config
+	import nvwave
+	import speech
+
+	log.info(f"Using wx version {wx.version()} with six version {six.__version__}")
+
+	# Disables wx logging in secure mode due to a security issue: GHSA-h7pp-6jqw-g3pj
+	# This is due to the wx.LogSysError dialog allowing a file explorer dialog to be opened.
+	wx.Log.EnableLogging(not globalVars.appArgs.secure)
+
+	class App(wx.App):
+		def OnAssert(self, file: str, line: str, cond: str, msg: str):
+			message = f"{file}, line {line}:\nassert {cond}: {msg}"
+			log.debugWarning(message, codepath="wxWidgets", stack_info=True)
+
+		def InitLocale(self):
+			"""Custom implementation of `InitLocale` which ensures that wxPython does not change the locale.
+			The current wx implementation (as of wxPython 4.1.1) sets Python locale to an invalid one
+			which triggers Python issue 36792 (#12160).
+			The new implementation (wxPython 4.1.2) sets locale to "C" (basic Unicode locale).
+			While this is not wrong as such NVDA manages locale themselves using `languageHandler`
+			and it is better to remove wx from the equation so this method is a No-op.
+			This code may need to be revisited when we update Python / wxPython.
+			"""
+			pass
+
+	app = App(redirect=False)
+
+	# We support queryEndSession events, but in general don't do anything for them.
+	# However, when running as a Windows Store application, we do want to request to be restarted for updates
+	def onQueryEndSession(evt):
+		if config.isAppX:
+			# Automatically restart NVDA on Windows Store update
+			ctypes.windll.kernel32.RegisterApplicationRestart(None, 0)
+
+	app.Bind(wx.EVT_QUERY_END_SESSION, onQueryEndSession)
+
+	def onEndSession(evt):
+		# NVDA will be terminated as soon as this function returns, so save configuration if appropriate.
+		config.saveOnExit()
+		speech.cancelSpeech()
+		if not globalVars.appArgs.minimal and config.conf["general"]["playStartAndExitSounds"]:
+			try:
+				nvwave.playWaveFile(
+					os.path.join(globalVars.appDir, "waves", "exit.wav"),
+					asynchronous=False
+				)
+			except Exception:
+				log.exception("Error playing exit sound")
+		log.info("Windows session ending")
+
+	app.Bind(wx.EVT_END_SESSION, onEndSession)
+
+	return app
+
+
 def main():
 	"""NVDA's core main loop.
 	This initializes all modules such as audio, IAccessible, keyboard, mouse, and GUI.
@@ -541,7 +618,17 @@ def main():
 		setDPIAwareness()
 
 	import config
-	if not WritePaths.configDir:
+	from utils.security import isRunningOnSecureDesktop
+	if (
+		# No config flag was set, use default config path.
+		not WritePaths.configDir
+		or (
+			# Secure mode enabled, force default config path.
+			globalVars.appArgs.secure
+			# Secure desktop config is forced to sys.prefix/systemConfig
+			and not isRunningOnSecureDesktop()
+		)
+	):
 		WritePaths.configDir = config.getUserDefaultConfigPath(
 			useInstalledPathIfExists=globalVars.appArgs.launcher
 		)
@@ -574,6 +661,8 @@ def main():
 	log.info(f"Windows version: {winVersion.getWinVer()}")
 	log.info("Using Python version %s"%sys.version)
 	log.info("Using comtypes version %s"%comtypes.__version__)
+	from utils import schedule
+	schedule.initialize()
 	import configobj
 	log.info("Using configobj version %s with validate version %s"%(configobj.__version__,configobj.validate.__version__))
 	# Set a reasonable timeout for any socket connections NVDA makes.
@@ -583,6 +672,8 @@ def main():
 	from addonStore import dataManager
 	dataManager.initialize()
 	addonHandler.initialize()
+	from gui import addonStoreGui
+	addonStoreGui.initialize()
 	if globalVars.appArgs.disableAddons:
 		log.info("Add-ons are disabled. Restart NVDA to enable them.")
 	import appModuleHandler
@@ -597,6 +688,9 @@ def main():
 	log.debug("Initializing tones")
 	import tones
 	tones.initialize()
+	log.debug("Initializing sound split")
+	import audio
+	audio.soundSplit.initialize()
 	import speechDictHandler
 	log.debug("Speech Dictionary processing")
 	speechDictHandler.initialize()
@@ -611,48 +705,13 @@ def main():
 		log.debugWarning("Slow starting core (%.2f sec)" % timeSinceStart)
 		# Translators: This is spoken when NVDA is starting.
 		speech.speakMessage(_("Loading NVDA. Please wait..."))
+
 	import wx
-	import six
-	log.info("Using wx version %s with six version %s"%(wx.version(), six.__version__))
-	class App(wx.App):
-		def OnAssert(self,file,line,cond,msg):
-			message="{file}, line {line}:\nassert {cond}: {msg}".format(file=file,line=line,cond=cond,msg=msg)
-			log.debugWarning(message,codepath="WX Widgets",stack_info=True)
+	app = _setUpWxApp()
 
-		def InitLocale(self):
-			"""Custom implementation of `InitLocale` which ensures that wxPython does not change the locale.
-			The current wx implementation (as of wxPython 4.1.1) sets Python locale to an invalid one
-			which triggers Python issue 36792 (#12160).
-			The new implementation (wxPython 4.1.2) sets locale to "C" (basic Unicode locale).
-			While this is not wrong as such NVDA manages locale themselves using `languageHandler`
-			and it is better to remove wx from the equation so this method is a No-op.
-			This code may need to be revisited when we update Python / wxPython.
-			"""
-			pass
-
-
-	app = App(redirect=False)
-	# We support queryEndSession events, but in general don't do anything for them.
-	# However, when running as a Windows Store application, we do want to request to be restarted for updates
-	def onQueryEndSession(evt):
-		if config.isAppX:
-			# Automatically restart NVDA on Windows Store update
-			ctypes.windll.kernel32.RegisterApplicationRestart(None,0)
-	app.Bind(wx.EVT_QUERY_END_SESSION, onQueryEndSession)
-	def onEndSession(evt):
-		# NVDA will be terminated as soon as this function returns, so save configuration if appropriate.
-		config.saveOnExit()
-		speech.cancelSpeech()
-		if not globalVars.appArgs.minimal and config.conf["general"]["playStartAndExitSounds"]:
-			try:
-				nvwave.playWaveFile(
-					os.path.join(globalVars.appDir, "waves", "exit.wav"),
-					asynchronous=False
-				)
-			except:
-				pass
-		log.info("Windows session ending")
-	app.Bind(wx.EVT_END_SESSION, onEndSession)
+	log.debug("Initializing brailleTables")
+	import brailleTables
+	brailleTables.initialize()
 	log.debug("Initializing braille input")
 	import brailleInput
 	brailleInput.initialize()
@@ -685,7 +744,7 @@ def main():
 	if wxLang:
 		try:
 			wxLocaleObj.Init(wxLang.Language)
-		except:
+		except:  # noqa: E722
 			log.error("Failed to initialize wx locale",exc_info=True)
 		finally:
 			# Revert wx's changes to the python locale
@@ -703,7 +762,7 @@ def main():
 		log.info("Java Access Bridge support initialized")
 	except NotImplementedError:
 		log.warning("Java Access Bridge not available")
-	except:
+	except:  # noqa: E722
 		log.error("Error initializing Java Access Bridge support", exc_info=True)
 	import winConsoleHandler
 	log.debug("Initializing legacy winConsole support")
@@ -714,7 +773,7 @@ def main():
 		UIAHandler.initialize()
 	except RuntimeError:
 		log.warning("UIA disabled in configuration")
-	except:
+	except:  # noqa: E722
 		log.error("Error initializing UIA support", exc_info=True)
 	import IAccessibleHandler
 	log.debug("Initializing IAccessible support")
@@ -747,13 +806,18 @@ def main():
 		)
 	elif globalVars.appArgs.portablePath and (globalVars.appArgs.createPortable or globalVars.appArgs.createPortableSilent):
 		import gui.installerGui
-		wx.CallAfter(gui.installerGui.doCreatePortable,portableDirectory=globalVars.appArgs.portablePath,
-			silent=globalVars.appArgs.createPortableSilent,startAfterCreate=not globalVars.appArgs.createPortableSilent)
+		wx.CallAfter(
+			gui.installerGui.doCreatePortable,
+			portableDirectory=globalVars.appArgs.portablePath,
+			silent=globalVars.appArgs.createPortableSilent,
+			startAfterCreate=not globalVars.appArgs.createPortableSilent,
+			warnForNonEmptyDirectory=not globalVars.appArgs.createPortableSilent,
+		)
 	elif not globalVars.appArgs.minimal:
 		try:
 			# Translators: This is shown on a braille display (if one is connected) when NVDA starts.
 			braille.handler.message(_("NVDA started"))
-		except:
+		except:  # noqa: E722
 			log.error("", exc_info=True)
 		if globalVars.appArgs.launcher:
 			from gui.startupDialogs import LauncherDialog
@@ -843,6 +907,7 @@ def main():
 	else:
 		log.debug("initializing updateCheck")
 		updateCheck.initialize()
+		log.debug(f"NVDA user ID {updateCheck.state['id']}")
 
 	from winAPI import sessionTracking
 	sessionTracking.initialize()
@@ -879,7 +944,7 @@ def main():
 
 	try:
 		speech.cancelSpeech()
-	except:
+	except:  # noqa: E722
 		pass
 
 	import treeInterceptorHandler
@@ -897,12 +962,14 @@ def main():
 	_terminate(vision)
 	_terminate(brailleInput)
 	_terminate(braille)
+	_terminate(brailleTables)
 	_terminate(speech)
 	_terminate(bdDetect)
 	_terminate(hwIo)
 	_terminate(addonHandler)
-	_terminate(nvwave)
+	_terminate(dataManager, name="addon dataManager")
 	_terminate(garbageHandler)
+	_terminate(schedule, name="task scheduler")
 	# DMP is only started if needed.
 	# Terminate manually (and let it write to the log if necessary)
 	# as core._terminate always writes an entry.
@@ -918,8 +985,10 @@ def main():
 				os.path.join(globalVars.appDir, "waves", "exit.wav"),
 				asynchronous=False
 			)
-		except:
+		except:  # noqa: E722
 			pass
+	# We cannot terminate nvwave until after we perform nvwave.playWaveFile
+	_terminate(nvwave)
 	# #5189: Destroy the message window as late as possible
 	# so new instances of NVDA can find this one even if it freezes during exit.
 	messageWindow.destroy()
@@ -932,7 +1001,7 @@ def _terminate(module, name=None):
 	log.debug("Terminating %s" % name)
 	try:
 		module.terminate()
-	except:
+	except:  # noqa: E722
 		log.exception("Error terminating %s" % name)
 
 

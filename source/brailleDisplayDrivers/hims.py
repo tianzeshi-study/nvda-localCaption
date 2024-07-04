@@ -4,11 +4,12 @@
 # Copyright (C) 2010-2023 Gianluca Casalino, NV Access Limited, Babbage B.V., Leonard de Ruijter,
 # Bram Duvigneau
 
-from typing import List
+from typing import List, Iterator
 
 import serial
 from io import BytesIO
 import hwIo
+from hwIo import intToByte
 import braille
 from logHandler import log
 from collections import OrderedDict
@@ -17,9 +18,13 @@ import brailleInput
 from baseObject import AutoPropertyObject
 import time
 import bdDetect
+import math
 
 BAUD_RATE = 115200
 PARITY = serial.PARITY_NONE
+
+# HID
+HR_CAPS = b"\x01"
 
 class Model(AutoPropertyObject):
 	"""Extend from this base class to define model specific behavior."""
@@ -116,6 +121,59 @@ class BrailleEdge(Model):
 		})
 		return keys
 
+
+class BrailleEdge2S(BrailleEdge):
+	"""This device is the BrailleEdge which doesn't use the hims driver.
+	It only uses a SPP connection.
+	"""
+	usbId = "VID_1A86&PID_55D3"
+
+	def _get_keys(self) -> dict[str, str]:
+		keys = Model._get_keys(self)
+
+		keys.update({
+			0x01 << 16: "leftSideScrollUp",
+			0x02 << 16: "rightSideScrollUp",
+			0x04 << 16: "rightSideScrollDown",
+			0x08 << 16: "leftSideScrollDown",
+		})
+		return keys
+
+
+class BrailleEdge3S(BrailleEdge):
+	"""This device is the BrailleEdge which doesn't use the hims driver.
+	It only uses a Braille HID connection.
+	"""
+	usbId = "VID_045E&PID_940A"
+
+	def _get_keys(self) -> dict[str, str]:
+		return OrderedDict({
+			# Braille keyboard, not used for SyncBraille
+			0x01 << 8: "dot1",
+			0x02 << 8: "dot2",
+			0x04 << 8: "dot3",
+			0x08 << 8: "dot4",
+			0x10 << 8: "dot5",
+			0x20 << 8: "dot6",
+			0x40 << 8: "dot7",
+			0x80 << 8: "dot8",
+			0x01 << 88: "space",
+			0x01 << 64: "f1",
+			0x04 << 64: "f2",
+			0x10 << 64: "f3",
+			0x40 << 64: "f4",
+			0x08 << 64: "leftSideScrollUp",
+			0x08 << 64: "rightSideScrollUp",
+			0x80 << 64: "leftSideScrollDown",
+			0x80 << 64: "rightSideScrollDown",
+			0x02 << 64: "leftCursor",
+			0x20 << 64: "rightCursor",
+			0x01 << 72: "control",
+			0x02 << 72: "alt",
+			0x04 << 72: "home",
+		})
+
+
 class BrailleSense2S(BrailleSense):
 	"""Braille Sense with one scroll key on both sides.
 	Also referred to as Braille Sense Classic."""
@@ -171,6 +229,8 @@ modelMap = [(cls.deviceId,cls) for cls in (
 	BrailleSenseQX,
 	BrailleSenseQ,
 	BrailleEdge,
+	BrailleEdge2S,
+	BrailleEdge3S,
 	SmartBeetle,
 	BrailleSense4S,
 	BrailleSense2S,
@@ -187,16 +247,31 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 
 	@classmethod
 	def registerAutomaticDetection(cls, driverRegistrar: bdDetect.DriverRegistrar):
-		# Bulk devices
-		driverRegistrar.addUsbDevices(bdDetect.DeviceType.CUSTOM, {
-			"VID_045E&PID_930A",  # Braille Sense & Smart Beetle
-			"VID_045E&PID_930B",  # Braille EDGE 40
-		})
+		deviceTypes = {
+			bdDetect.DeviceType.HID: (
+				{
+					"VID_045E&PID_940A"  # Braille Edge3S 40
+				},
+				True
+			),
+			bdDetect.DeviceType.CUSTOM: (
+				{
+					"VID_045E&PID_930A",  # Braille Sense & Smart Beetle
+					"VID_045E&PID_930B"  # Braille EDGE 40
+				},
+				False
+			),
+			bdDetect.DeviceType.SERIAL: (
+				{
+					"VID_0403&PID_6001",
+					"VID_1A86&PID_55D3"  # Braille Edge2S 40
+				},
+				False
+			)
+		}
 
-		# Sync Braille, serial device
-		driverRegistrar.addUsbDevices(bdDetect.DeviceType.SERIAL, {
-			"VID_0403&PID_6001",
-		})
+		for deviceType, (ids, useAsFallback) in deviceTypes.items():
+			driverRegistrar.addUsbDevices(deviceType, ids, useAsFallback)
 
 		driverRegistrar.addBluetoothDevices(lambda m: any(m.id.startswith(prefix) for prefix in (
 			"BrailleSense",
@@ -205,24 +280,38 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 		)))
 
 	@classmethod
-	def getManualPorts(cls):
-		return braille.getSerialPorts(filterFunc=lambda info: "bluetoothName" in info)
+	def getManualPorts(cls) -> Iterator[tuple[str, str]]:
+		return braille.getSerialPorts()
 
 	def __init__(self, port="auto"):
 		super(BrailleDisplayDriver, self).__init__()
 		self.numCells = 0
 		self._model = None
+		self._serialData = b''
 
 		for match in self._getTryPorts(port):
 			portType, portId, port, portInfo = match
 			self.isBulk = portType == bdDetect.DeviceType.CUSTOM
+			self.isHID = portType == bdDetect.DeviceType.HID
 			# Try talking to the display.
 			try:
-				if self.isBulk:
-					# onReceiveSize based on max packet size according to USB endpoint information.
-					self._dev = hwIo.Bulk(port, 0, 1, self._onReceive, onReceiveSize=64)
-				else:
-					self._dev = hwIo.Serial(port, baudrate=BAUD_RATE, parity=PARITY, timeout=self.timeout, writeTimeout=self.timeout, onReceive=self._onReceive)
+				match portType:
+					case bdDetect.DeviceType.HID:
+						self._dev = hwIo.Hid(port, onReceive=self._hidOnReceive)
+					case bdDetect.DeviceType.CUSTOM:
+						# onReceiveSize based on max packet size according to USB endpoint information.
+						self._dev = hwIo.Bulk(port, 0, 1, self._onReceive, onReceiveSize=64)
+					case bdDetect.DeviceType.SERIAL:
+						self._dev = hwIo.Serial(
+							port,
+							baudrate=BAUD_RATE,
+							parity=PARITY,
+							timeout=self.timeout,
+							writeTimeout=self.timeout,
+							onReceive=self._onReceive
+						)
+					case _:
+						log.error(f"No matching case for portType found: {portType}")
 			except EnvironmentError:
 				log.debugWarning("", exc_info=True)
 				continue
@@ -257,31 +346,44 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 	def display(self, cells: List[int]):
 		# cells will already be padded up to numCells.
 		cellBytes = bytes(cells)
-		self._sendPacket(b"\xfc", b"\x01", cellBytes)
+		if self.isHID:
+			outputReport: bytes = b"".join([
+				intToByte(self.numCells),  # length
+				cellBytes
+			])
+
+			self._dev.setOutputReport(outputReport)
+		else:
+			self._sendPacket(b"\xfc", b"\x01", cellBytes)
 
 	def _sendCellCountRequest(self):
-		log.debug("Sending cell count request...")
-		self._sendPacket(b"\xfb", b"\x01", bytes(32)) # send 32 null bytes
+		if self.isHID:
+			try:
+				data: bytes = self._dev.getFeature(HR_CAPS)
+				self.numCells = data[9]
+			except WindowsError:
+				log.exception("Failed to fetch number of cells")
+				return
+		else:
+			log.debug("Sending cell count request...")
+			self._sendPacket(b"\xfb", b"\x01", bytes(32))  # send 32 null bytes
 
 	def _sendIdentificationRequests(self, match: bdDetect.DeviceMatch):
 		log.debug("Considering sending identification requests for device %s"%str(match))
-		if match.type == bdDetect.DeviceType.CUSTOM:  # USB Bulk
-			matchedModelsMap = [
-				modelTuple for modelTuple in modelMap if(
-					modelTuple[1].usbId == match.id
-				)
-			]
-		elif "bluetoothName" in match.deviceInfo: # Bluetooth
+		if "bluetoothName" in match.deviceInfo:  # Bluetooth
 			matchedModelsMap = [
 				modelTuple for modelTuple in modelMap if(
 					modelTuple[1].bluetoothPrefix
 					and match.id.startswith(modelTuple[1].bluetoothPrefix)
 				)
 			]
-		else: # The only serial device we support which is not bluetooth, is a Sync Braille
-			self._model = SyncBraille()
-			log.debug("Use %s as model without sending an additional identification request"%self._model.name)
-			return
+		else:  # USB Bulk, Serial, HID
+			matchedModelsMap = [
+				modelTuple for modelTuple in modelMap if(
+					modelTuple[1].usbId == match.id
+				)
+			]
+		
 		if not matchedModelsMap:
 			log.debugWarning("The provided device match to send identification requests didn't yield any results")
 			matchedModelsMap = modelMap
@@ -367,38 +469,92 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 		elif mode == 0x02: # Cell count
 			self.numCells = packet[3]
 
+	def _hidOnReceive(self, data: bytes):
+		if data == bytes([0x00] * 12):  # All key lifted
+			return
+
+		routingKey = int.from_bytes(data[2:7], "little", signed=False)
+		if routingKey != 0:  # Routing key
+			try:
+				inputCore.manager.executeGesture(RoutingInputGesture(int(math.log(routingKey, 2))))
+			except inputCore.NoInputGestureAction:
+				pass
+		else:  # Other key
+			if not self._model:
+				return
+			_keys = int.from_bytes(data, "little", signed=False)
+			keys = set()
+			for keyHex in self._model.keys:
+				if _keys & keyHex:
+					# This key is pressed
+					_keys -= keyHex
+					keys.add(keyHex)
+					if _keys == 0:
+						break
+			if _keys:
+				log.error("Unknown key(s) 0x%x received from Hims display" % _keys)
+				return
+			try:
+				inputCore.manager.executeGesture(KeyInputGesture(self._model, keys, True))
+			except inputCore.NoInputGestureAction:
+				pass
+
 	def _onReceive(self, data: bytes):
 		if self.isBulk:
-			# data contains the entire packet.
 			stream = BytesIO(data)
-			firstByte:bytes = data[0:1]
+			firstByte: bytes = data[0:1]
 			stream.seek(1)
 		else:
 			firstByte = data
-			# data only contained the first byte. Read the rest from the device.
 			stream = self._dev
-		if firstByte == b"\x1c":
+
+		# sometimes serial data is received in fragments.
+		# so accumulate data until it reaches 10 bytes.
+		if not self._accumulateSerialData(data):
+			return
+
+		if firstByte == b"\xfa":
+			self._processSerialData(firstByte, stream)
+		elif firstByte == b"\x1c":
 			# A device is identifying itself
 			deviceId: bytes = stream.read(2)
 			# When a device identifies itself, the packets ends with 0x1f
 			assert stream.read(1) == b"\x1f"
 			self._handleIdentification(deviceId)
-		elif firstByte == b"\xfa":
-			# Command packets are ten bytes long
-			packet = firstByte + stream.read(9)
-			assert packet[2] == 0x01 # Fixed value
-			CHECKSUM_INDEX = 8
-			checksum: int = packet[CHECKSUM_INDEX]
-			assert packet[9] == 0xfb # Command End
-			calcCheckSum: int = 0xff & sum(
-				c for index, c in enumerate(packet) if(
-					index != CHECKSUM_INDEX)
-			)
-			assert(calcCheckSum == checksum)
-			self._handlePacket(packet)
 		else:
-			log.debug("Unknown first byte received: 0x%x"%ord(firstByte))
+			log.debug(f"Unknown first byte received: 0x{ord(firstByte):x}")
 			return
+
+	def _accumulateSerialData(self, data: bytes) -> bool:
+		if self._serialData:
+			self._serialData += data
+			return len(self._serialData) == 10
+
+		return True
+
+	def _processSerialData(self, firstByte: bytes, stream):
+		# serial data first received
+		if not self._serialData:
+			try:
+				# Command packets are ten bytes long
+				packet = firstByte + stream.read(9)
+			except IOError:
+				# remaining data will be received next onReceive
+				self._serialData = firstByte
+				return
+		else:
+			packet = self._serialData
+			self._serialData = b""
+		
+		assert packet[2] == 0x01  # Fixed value
+		CHECKSUM_INDEX = 8
+		checksum: int = packet[CHECKSUM_INDEX]
+		assert packet[9] == 0xfb  # Command End
+		calcCheckSum: int = 0xff & sum(
+			c for index, c in enumerate(packet) if index != CHECKSUM_INDEX
+		)
+		assert calcCheckSum == checksum
+		self._handlePacket(packet)
 
 	def _sendPacket(
 			self,
@@ -578,7 +734,7 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 				"br(hims):dot2+dot7+f1",
 			),
 			"kb:alt+leftArrow": (
-				"br(hims):dot2+dot7",
+				"br(hims):dot2+dot7+space",
 			),
 			"kb:rightArrow": (
 				"br(hims):dot6+space",
@@ -594,7 +750,7 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 				"br(hims):dot5+dot7+f1",
 			),
 			"kb:alt+rightArrow": (
-				"br(hims):dot5+dot7",
+				"br(hims):dot5+dot7+space",
 			),
 			"kb:pageUp": (
 				"br(hims):dot1+dot2+dot6+space",
@@ -616,7 +772,7 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 				"br(hims):dot2+dot3+dot7+f1",
 			),
 			"kb:alt+upArrow": (
-				"br(hims):dot2+dot3+dot7",
+				"br(hims):dot2+dot3+dot7+space",
 			),
 			"kb:shift+upArrow": (
 				"br(hims):leftSideScrollDown+space",
@@ -641,7 +797,7 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver):
 				"br(hims):dot5+dot6+dot7+f1",
 			),
 			"kb:alt+downArrow": (
-				"br(hims):dot5+dot6+dot7",
+				"br(hims):dot5+dot6+dot7+space",
 			),
 			"kb:shift+downArrow": (
 				"br(hims):space+rightSideScrollDown",
@@ -683,7 +839,7 @@ class KeyInputGesture(braille.BrailleDisplayGesture, brailleInput.BrailleInputGe
 
 	source = BrailleDisplayDriver.name
 
-	def __init__(self, model, keys):
+	def __init__(self, model, keys, isHid: bool = False):
 		super(KeyInputGesture, self).__init__()
 		# Model identifiers should not contain spaces.
 		self.model=model.name.replace(" ", "")
@@ -692,15 +848,26 @@ class KeyInputGesture(braille.BrailleDisplayGesture, brailleInput.BrailleInputGe
 		isBrailleInput = True
 		for key in keys:
 			if isBrailleInput:
-				if 0xff & key:
-					self.dots |= key
-				elif model.keys.get(key)=="space":
-					self.space = True
+				if isHid:
+					if 8 <= int(math.log(key, 2)) <= 15:
+						self.dots |= key >> 8
+					elif model.keys.get(key) == "space":
+						self.space = True
+					else:
+						# This is not braille input.
+						isBrailleInput = False
+						self.dots = 0
+						self.space = False
 				else:
-					# This is not braille input.
-					isBrailleInput = False
-					self.dots = 0
-					self.space = False
+					if 0xff & key:
+						self.dots |= key
+					elif model.keys.get(key) == "space":
+						self.space = True
+					else:
+						# This is not braille input.
+						isBrailleInput = False
+						self.dots = 0
+						self.space = False
 			names.add(model.keys[key])
 
 		self.id = "+".join(names)

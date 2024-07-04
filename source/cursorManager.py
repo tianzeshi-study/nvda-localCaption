@@ -20,7 +20,6 @@ from speech import sayAll
 import review
 from scriptHandler import willSayAllResume, script
 import textInfos
-import api
 import speech
 import config
 import braille
@@ -452,8 +451,6 @@ class CursorManager(documentBase.TextContainerObject,baseObject.ScriptableObject
 
 	def script_copyToClipboard(self, gesture: inputCore.InputGesture):
 		if self._nativeAppSelectionMode:
-			# Translators: Reported when browse mode passes the copy to clipboard command through to the application.
-			ui.message(_("native copy"))
 			gesture.send()
 			return
 		info=self.makeTextInfo(textInfos.POSITION_SELECTION)

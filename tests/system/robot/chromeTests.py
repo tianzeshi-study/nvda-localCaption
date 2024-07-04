@@ -1020,18 +1020,18 @@ def test_i12147():
 	New focus target should be announced if the triggering element is removed when activated.
 	"""
 	_chrome.prepareChrome(
-		f"""
+		"""
 			<div>
 			  <button id='trigger0'>trigger 0</button>
 			  <h4 id='target0' tabindex='-1'>target 0</h4>
 			</div>
 			<script>
 				let trigger0 = document.querySelector('#trigger0');
-				trigger0.addEventListener('click', e => {{
+				trigger0.addEventListener('click', e => {
 				  let focusTarget = document.querySelector('#target0');
 				  trigger0.remove();
 				  focusTarget.focus();
-				}})
+				})
 			</script>
 		"""
 	)
@@ -1472,7 +1472,7 @@ def test_i10840():
 	Chrome self-references a header cell as its own header, which used to cause the name to be announced twice
 	"""
 	_chrome.prepareChrome(
-		f"""
+		"""
 			<table>
 				<thead>
 					<tr>
@@ -2472,4 +2472,227 @@ def test_i13307():
 			"button",
 		]),
 		message="jumping into region with aria-labelledby should speak label",
+	)
+
+
+def test_textParagraphNavigation():
+	_chrome.prepareChrome("""
+		<!-- First a bunch of paragraphs that don't match text regex -->
+		<p>Header</p>
+		<p>Liberal MP: 1904–1908</p>
+		<p>.</p>
+		<p>…</p>
+		<p>5.</p>
+		<p>test....</p>
+		<p>a.b</p>
+		<p></p>
+		<!-- Now a bunch of matching paragraphs -->
+		<p>Hello, world!</p>
+		<p>He replied, "That's wonderful."</p>
+		<p>He replied, "That's wonderful".</p>
+		<p>He replied, "That's wonderful."[4]</p>
+		<p>Предложение по-русски.</p>
+		<p>我不会说中文！</p>
+		<p>Bye-bye, world!</p>
+	""")
+
+	expectedParagraphs = [
+		# Tests exclamation sign
+		"Hello, world!",
+		# Tests Period with preceding quote
+		"He replied,  That's wonderful.",
+		# Tests period with trailing quote
+		"He replied,  That's wonderful .",
+		# Tests wikipedia-style reference
+		"He replied,  That's wonderful.  4",
+		# Tests compatibility with Russian Cyrillic script
+		"Предложение по-русски.",
+		# Tests regex condition for CJK full width character terminators
+		"我不会说中文",
+		"Bye-bye, world!",
+	]
+	for p in expectedParagraphs:
+		actualSpeech = _chrome.getSpeechAfterKey("p")
+		_asserts.strings_match(actualSpeech, p)
+	actualSpeech = _chrome.getSpeechAfterKey("p")
+	_asserts.strings_match(actualSpeech, "no next text paragraph")
+
+	for p in expectedParagraphs[-2::-1]:
+		actualSpeech = _chrome.getSpeechAfterKey("shift+p")
+		_asserts.strings_match(actualSpeech, p)
+	actualSpeech = _chrome.getSpeechAfterKey("shift+p")
+	_asserts.strings_match(actualSpeech, "no previous text paragraph")
+
+
+def test_styleNav():
+	""" Tests that same style and different style navigation work correctly in browse mode.
+	By default these commands don't have assigned gestures,
+	so we will assign temporary gestures just for testing.
+	"""
+	spy: "NVDASpyLib" = _NvdaLib.getSpyLib()
+	spy.assignGesture(
+		"kb:s",
+		"browseMode",
+		"BrowseModeTreeInterceptor",
+		"nextSameStyle",
+	)
+
+	spy.assignGesture(
+		"kb:shift+s",
+		"browseMode",
+		"BrowseModeTreeInterceptor",
+		"previousSameStyle",
+	)
+	spy.assignGesture(
+		"kb:d",
+		"browseMode",
+		"BrowseModeTreeInterceptor",
+		"nextDifferentStyle",
+	)
+
+	spy.assignGesture(
+		"kb:shift+d",
+		"browseMode",
+		"BrowseModeTreeInterceptor",
+		"previousDifferentStyle",
+	)
+
+	_chrome.prepareChrome("""
+		<p>Hello world!</p>
+		<p>This text is <b>bold</b></p>
+		<p>Second line is <font size="15pt">large</font></p>
+		<p>Third line is <mark>highlighted</mark></p>
+		<p>Fourth line is <b>bold again</b></p>
+		<p>End of document.</p>
+	""")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("shift+d")
+	_asserts.strings_match(actualSpeech, "No previous different style text")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("s")
+	_asserts.strings_match(actualSpeech, "Second line is")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("shift+d")
+	_asserts.strings_match(actualSpeech, "bold")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("s")
+	_asserts.strings_match(actualSpeech, "bold again")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("s")
+	_asserts.strings_match(actualSpeech, "No next same style text")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("d")
+	_asserts.strings_match(actualSpeech, "End of document.  After Test Case Marker")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("d")
+	_asserts.strings_match(actualSpeech, "No next different style text")
+	for s in [
+		"Second line is",
+		"Third line is",
+		"Fourth line is",
+	][::-1]:
+		actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("shift+s")
+		_asserts.strings_match(actualSpeech, s)
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("d")
+	_asserts.strings_match(actualSpeech, "large")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("shift+s")
+	_asserts.strings_match(actualSpeech, "No previous same style text")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("s")
+	_asserts.strings_match(actualSpeech, "No next same style text")
+	
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("d")
+	_asserts.strings_match(actualSpeech, "Third line is")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("d")
+	_asserts.strings_match(actualSpeech, "highlighted  highlighted")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("shift+s")
+	_asserts.strings_match(actualSpeech, "No previous same style text")
+	actualSpeech, actualBraille = _NvdaLib.getSpeechAndBrailleAfterKey("s")
+	_asserts.strings_match(actualSpeech, "No next same style text")
+
+
+def test_ariaErrorMessage():
+	_chrome.prepareChrome("""
+		<h2>Native valid</h2>
+		<label for="i1">Input 1</label>
+		<input type="text" autocomplete="off" id="i1" aria-errormessage="e1" />
+		<p id="e1">Error 1</p>
+
+		<h2>Native invalid</h2>
+		<label for="i2">Input 2</label>
+		<input type="text" autocomplete="off"  id="i2" pattern="a" value="b" aria-errormessage="e2" />
+		<p id="e2">Error 2</p>
+
+		<h2>ARIA valid</h2>
+		<label id="l3">Input 3</label>
+		<div contenteditable role="textbox" aria-multiline="false" aria-labelledby="l3" aria-errormessage="e3"
+		     aria-invalid="false"></div>
+		<p id="e3">Error 3</p>
+
+		<h2>ARIA valid</h2>
+		<label id="l4">Input 4</label>
+		<div contenteditable role="textbox" aria-multiline="false" aria-labelledby="l4" aria-errormessage="e4"
+		     aria-invalid="true"></div>
+		<p id="e4">Error 4</p>
+	""")
+	# Force focus mode
+	actualSpeech = _chrome.getSpeechAfterKey("NVDA+space")
+	_asserts.strings_match(
+		actualSpeech,
+		"Focus mode"
+	)
+	# Tab to the native valid field
+	actualSpeech = _chrome.getSpeechAfterKey("tab")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 1", "edit", "blank"))
+	)
+
+	# Tab to the native invalid field
+	actualSpeech = _chrome.getSpeechAfterKey("tab")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 2", "edit", "invalid entry", "Error 2", "selected b"))
+	)
+
+	# Tab to the ARIA valid field
+	actualSpeech = _chrome.getSpeechAfterKey("tab")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 3", "edit", "blank"))
+	)
+
+	# Tab to the native invalid field
+	actualSpeech = _chrome.getSpeechAfterKey("tab")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 4", "edit", "invalid entry", "Error 4", "blank"))
+	)
+
+	# Force browse mode
+	actualSpeech = _chrome.getSpeechAfterKey("NVDA+space")
+	_asserts.strings_match(
+		actualSpeech,
+		"Browse mode"
+	)
+	# Jump to the top of the document
+	_chrome.getSpeechAfterKey("control+home")
+	# Quick nav to the native valid field
+	actualSpeech = _chrome.getSpeechAfterKey("e")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 1", "edit"))
+	)
+
+	# Quick nav to the native invalid field
+	actualSpeech = _chrome.getSpeechAfterKey("e")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 2", "edit", "invalid entry", "Error 2", "b"))
+	)
+
+	# Quick nav to the ARIA valid field
+	actualSpeech = _chrome.getSpeechAfterKey("e")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 3", "edit"))
+	)
+
+	# Quick nav to the native invalid field
+	actualSpeech = _chrome.getSpeechAfterKey("e")
+	_asserts.strings_match(
+		actualSpeech,
+		SPEECH_SEP.join(("Input 4", "edit", "invalid entry", "Error 4"))
 	)

@@ -1,5 +1,5 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2006-2023 NV Access Limited, Manish Agrawal, Derek Riemer, Babbage B.V., Cyrille Bougot
+# Copyright (C) 2006-2024 NV Access Limited, Manish Agrawal, Derek Riemer, Babbage B.V., Cyrille Bougot
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
 
@@ -9,6 +9,8 @@ import time
 from typing import (
 	Optional,
 	Dict,
+	Generator,
+	TYPE_CHECKING,
 )
 
 from comtypes import COMError, GUID, BSTR
@@ -35,14 +37,15 @@ from controlTypes import TextPosition
 from controlTypes.formatFields import TextAlign
 import treeInterceptorHandler
 import browseMode
-import review
-from cursorManager import CursorManager, ReviewCursorManager
-from tableUtils import HeaderCellInfo, HeaderCellTracker
 from . import Window
 from ..behaviors import EditableTextWithoutAutoSelectDetection
 from . import _msOfficeChart
 import locationHelper
 from enum import IntEnum
+import documentBase
+
+if TYPE_CHECKING:
+	import inputCore
 
 #Word constants
 
@@ -782,7 +785,7 @@ class WordDocumentTextInfo(textInfos.TextInfo):
 		self,
 		formatConfig: Optional[Dict] = None
 	) -> textInfos.TextInfo.TextWithFieldsT:
-		if self.isCollapsed: return []
+		if self.isCollapsed: return []  # noqa: E701
 		if self.obj.ignoreFormatting:
 			return [self.text]
 		extraDetail=formatConfig.get('extraDetail',False) if formatConfig else False
@@ -879,7 +882,7 @@ class WordDocumentTextInfo(textInfos.TextInfo):
 					if fieldTitle:
 						field['name']=fieldTitle
 						field['alwaysReportName']=True
-		if role is not None: field['role']=role
+		if role is not None: field['role']=role  # noqa: E701
 		if role==controlTypes.Role.TABLE and field.get('longdescription'):
 			field['states']=set([controlTypes.State.HASLONGDESC])
 		storyType=int(field.pop('wdStoryType',0))
@@ -960,12 +963,12 @@ class WordDocumentTextInfo(textInfos.TextInfo):
 			languageId = int(field.pop('wdLanguageId',0))
 			if languageId:
 				field['language']=languageHandler.windowsLCIDToLocaleName(languageId)
-		except:
+		except:  # noqa: E722
 			log.debugWarning("language error",exc_info=True)
 			pass
 		for x in ("first-line-indent","left-indent","right-indent","hanging-indent"):
 			v=field.get(x)
-			if not v: continue
+			if not v: continue  # noqa: E701
 			v=float(v)
 			if abs(v)<0.001:
 				v=None
@@ -1143,14 +1146,14 @@ class WordDocumentTextInfo(textInfos.TextInfo):
 	def getMathMl(self, field):
 		try:
 			import mathType
-		except:
+		except:  # noqa: E722
 			raise LookupError("MathType not installed")
 		rangeObj = self._rangeObj.Duplicate
 		rangeObj.Start = int(field["shapeoffset"])
 		obj = rangeObj.InlineShapes[0].OLEFormat
 		try:
 			return mathType.getMathMl(obj)
-		except:
+		except:  # noqa: E722
 			log.debugWarning("Error fetching math with mathType", exc_info=True)
 			raise LookupError("Couldn't get MathML from MathType")
 
@@ -1167,6 +1170,7 @@ class BrowseModeWordDocumentTextInfo(browseMode.BrowseModeDocumentTextInfo,treeI
 class WordDocumentTreeInterceptor(browseMode.BrowseModeDocumentTreeInterceptor):
 
 	TextInfo=BrowseModeWordDocumentTextInfo
+	_nativeAppSelectionMode = True
 
 	def _activateLongDesc(self,controlField):
 		longDesc=controlField.get('longdescription')
@@ -1248,6 +1252,16 @@ class WordDocumentTreeInterceptor(browseMode.BrowseModeDocumentTreeInterceptor):
 		self.rootNVDAObject._moveInTable(row=False,forward=False)
 		braille.handler.handleCaretMove(self)
 
+	def _iterTextStyle(
+			self,
+			kind: str,
+			direction: documentBase._Movement = documentBase._Movement.NEXT,
+			pos: textInfos.TextInfo | None = None
+	) -> Generator[browseMode.TextInfoQuickNavItem, None, None]:
+		raise NotImplementedError(
+			"word textInfos are not supported due to multiple issues with them - #16569"
+		)
+
 	__gestures={
 		"kb:tab":"trapNonCommandGesture",
 		"kb:shift+tab":"trapNonCommandGesture",
@@ -1313,7 +1327,7 @@ class WordDocument(Window):
 	def _get_WinwordDocumentObject(self):
 		if not getattr(self,'_WinwordDocumentObject',None): 
 			windowObject=self.WinwordWindowObject
-			if not windowObject: return None
+			if not windowObject: return None  # noqa: E701
 			self._WinwordDocumentObject=windowObject.document
 		return self._WinwordDocumentObject
 
@@ -1325,7 +1339,7 @@ class WordDocument(Window):
 	def _get_WinwordSelectionObject(self):
 		if not getattr(self,'_WinwordSelectionObject',None):
 			windowObject=self.WinwordWindowObject
-			if not windowObject: return None
+			if not windowObject: return None  # noqa: E701
 			self._WinwordSelectionObject=windowObject.selection
 		return self._WinwordSelectionObject
 
@@ -1603,6 +1617,21 @@ class WordDocument(Window):
 			# Translators: a message when switching to 1.5 line spaceing  in Microsoft word
 			ui.message(_("1.5 line spacing"))
 
+	@script(gesture="kb:control+0")
+	def script_changeParagraphSpacing(self, gesture: "inputCore.InputGesture"):
+		if not self.WinwordSelectionObject:
+			# We cannot fetch the Word object model, so we therefore cannot report the format change.
+			# The object model may be unavailable because this is a pure UIA implementation such as Windows 10 Mail,
+			# or it's within Windows Defender Application Guard.
+			# In this case, just let the gesture through and don't report anything.
+			return gesture.send()
+		val = self._WaitForValueChangeForAction(
+			lambda: gesture.send(),
+			lambda: self.WinwordSelectionObject.ParagraphFormat.SpaceBefore,
+		)
+		# Translators: a message when toggling paragraph spacing in Microsoft word
+		ui.message(_("{val:g} pt space before paragraph").format(val=val))
+
 	def initOverlayClass(self):
 		if isinstance(self, EditableTextWithoutAutoSelectDetection):
 			self.bindGesture("kb:alt+shift+home", "caret_changeSelection")
@@ -1650,7 +1679,7 @@ class WordDocument_WwN(WordDocument):
 
 	def _get_WinwordWindowObject(self):
 		window=super(WordDocument_WwN,self).WinwordWindowObject
-		if not window: return None
+		if not window: return None  # noqa: E701
 		try:
 			return window.application.activeWindow.activePane
 		except COMError:

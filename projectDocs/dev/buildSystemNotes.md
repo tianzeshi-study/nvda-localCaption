@@ -30,6 +30,7 @@ These are the only files expected to be executed directly by a user/developer:
 - `rununittests.bat`
 - `runsystemtests.bat`
 - `runlint.bat`
+- `runlicensecheck.bat`
 
 **Note:** The `runnvda.bat` script intentionally uses `pyw.exe` to run NVDA as
 this is the more common and expected way to run NVDA.
@@ -64,7 +65,6 @@ Ensures the build environment is clean, and there are no conflicts with other in
 NVDA and its build system have many Python dependencies.
 Using `pip` and a virtual environment means:
 - Updating is easier than git submodules.
-  E.G. wxPython no longer has to be pre-built and stored in our bin repo.
 - Developers need to sync/update their submodules less often.
 - More consistency for dependencies.
 - IDE's can be configured more easily.

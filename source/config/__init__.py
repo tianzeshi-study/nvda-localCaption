@@ -1,5 +1,5 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2006-2023 NV Access Limited, Aleksey Sadovoy, Peter Vágner, Rui Batista, Zahari Yurukov,
+# Copyright (C) 2006-2024 NV Access Limited, Aleksey Sadovoy, Peter Vágner, Rui Batista, Zahari Yurukov,
 # Joseph Lee, Babbage B.V., Łukasz Golonka, Julien Cochuyt, Cyrille Bougot
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
@@ -115,7 +115,7 @@ def saveOnExit():
 	if conf["general"]["saveConfigurationOnExit"]:
 		try:
 			conf.save()
-		except:
+		except:  # noqa: E722
 			pass
 
 
@@ -232,6 +232,7 @@ def getUserDefaultConfigPath(useInstalledPathIfExists=False):
 SCRATCH_PAD_ONLY_DIRS = (
 	'appModules',
 	'brailleDisplayDrivers',
+	'brailleTables',
 	'globalPlugins',
 	'synthDrivers',
 	'visionEnhancementProviders',
@@ -503,14 +504,18 @@ class ConfigManager(object):
 	Changed settings are written to the most recently activated profile.
 	"""
 
-	#: Sections that only apply to the base configuration;
-	#: i.e. they cannot be overridden in profiles.
 	BASE_ONLY_SECTIONS = {
-	"general", 
-	"update", 
-	"upgrade",
-	"development",
-}
+		"general",
+		"update",
+		"upgrade",
+		"development",
+		"addonStore",
+	}
+	"""
+	Sections that only apply to the base configuration;
+	i.e. they cannot be overridden in profiles.
+	Note this set may be extended by add-ons.
+	"""
 
 	def __init__(self):
 		self.spec = confspec
@@ -558,7 +563,7 @@ class ConfigManager(object):
 			try:
 				profile = self._loadConfig(fn) # a blank config returned if fn does not exist
 				self.baseConfigError = False
-			except:
+			except:  # noqa: E722
 				backupFileName = fn + '.corrupted.bak'
 				log.error(
 					"Error loading base configuration; the base configuration file will be reinitialized."
@@ -609,7 +614,7 @@ class ConfigManager(object):
 		# if debug level logging is enabled.
 		try:
 			logLevelName = profile["general"]["loggingLevel"]
-		except KeyError as e:
+		except KeyError:
 			logLevelName = None
 		if log.isEnabledFor(log.DEBUG) or (logLevelName and DEBUG >= logging.getLevelName(logLevelName)):
 			# Log at level info to ensure that the profile is logged.
@@ -786,6 +791,12 @@ class ConfigManager(object):
 			for trigSpec in delTrigs:
 				del allTriggers[trigSpec]
 			self.saveProfileTriggers()
+		# Remove the profile from the dirty profile list
+		try:
+			self._dirtyProfiles.remove(name)
+		except KeyError:
+			# The profile wasn't dirty.
+			pass
 		# Check if this profile was active.
 		delProfile = None
 		for index in range(len(self.profiles) - 1, -1, -1):
@@ -975,7 +986,7 @@ class ConfigManager(object):
 		fn = WritePaths.profileTriggersFile
 		try:
 			cobj = ConfigObj(fn, indent_type="\t", encoding="UTF-8")
-		except:
+		except:  # noqa: E722
 			log.error("Error loading profile triggers", exc_info=True)
 			cobj = ConfigObj(None, indent_type="\t", encoding="UTF-8")
 			cobj.filename = fn
@@ -1347,7 +1358,7 @@ class ProfileTrigger(object):
 			return
 		try:
 			conf._triggerProfileEnter(self)
-		except:
+		except:  # noqa: E722
 			log.error("Error entering trigger %s, profile %s"
 				% (self.spec, self.profileName), exc_info=True)
 	__enter__ = enter
@@ -1360,7 +1371,7 @@ class ProfileTrigger(object):
 			return
 		try:
 			conf._triggerProfileExit(self)
-		except:
+		except:  # noqa: E722
 			log.error("Error exiting trigger %s, profile %s"
 				% (self.spec, self.profileName), exc_info=True)
 
