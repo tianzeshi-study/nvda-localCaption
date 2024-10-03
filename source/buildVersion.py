@@ -54,7 +54,7 @@ def formatVersionForGUI(year, major, minor):
 	"""
 	if None in (year, major, minor):
 		raise ValueError(
-			"Three values must be provided. Got year={}, major={}, minor={}".format(year, major, minor)
+			"Three values must be provided. Got year={}, major={}, minor={}".format(year, major, minor),
 		)
 	if minor == 0:
 		return "{y}.{M}".format(y=year, M=major)
@@ -63,8 +63,8 @@ def formatVersionForGUI(year, major, minor):
 
 # Version information for NVDA
 name = "NVDA"
-version_year = 2024
-version_major = 4
+version_year = 2025
+version_major = 1
 version_minor = 0
 version_build = 0  # Should not be set manually. Set in 'sconscript' provided by 'appVeyor.yml'
 version = _formatDevVersionString()
