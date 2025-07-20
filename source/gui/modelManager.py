@@ -7,16 +7,11 @@ import threading
 from typing import List
 import winsound  # Windows sound API for audio notifications
 
-# Assume modelDownloader.py is in the same directory
-try:
-	from .modelDownloader import downloadModelsMultithreaded, ensureModelsDirectory
-except ImportError:
-	from modelDownloader import downloadModelsMultithreaded, ensureModelsDirectory
-
-
-
+from _localCaptioner.modelDownloader import downloadModelsMultithreaded, ensureModelsDirectory
 from logHandler import log
 
+#: The singleton instance of the model frame UI.
+managerFrame = None
 
 class AdvancedSettingsDialog(wx.Dialog):
 	"""Advanced Settings Dialog for model download configuration.
@@ -677,3 +672,22 @@ class ModelManagerFrame(wx.Frame):
 			dlg.Destroy()
 
 		self.Destroy()
+
+def activate() -> None:
+	"""Open the model manager frame window."""
+	def showManager() -> None:
+		"""Show the model manager window."""
+		global managerFrame
+		try:
+			if not managerFrame:
+				managerFrame = ModelManagerFrame()
+
+			managerFrame.Show()
+			managerFrame.Raise()
+
+		except Exception as e:
+			log.error(str(e))
+
+	# Ensure execution in main thread
+	wx.CallAfter(showManager)
+
