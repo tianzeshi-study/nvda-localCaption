@@ -44,6 +44,7 @@ def NVDA_Caption():
 	generator = MockVisionEncoderDecoderGenerator(random_seed=8)
 	# Generate all files relative to repo root
 	output_directory = "./models/mock/vit-gpt2-image-captioning"
+	import os;print("models directory", os.path.realpath(output_directory));
 	generator.generate_all_files(output_directory)
 	spy = _nvdaLib.getSpyLib()
 	# open something to generate caption 
