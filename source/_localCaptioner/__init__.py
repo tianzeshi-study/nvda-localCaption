@@ -121,7 +121,12 @@ class LocalCaptioner:
 		imageData = shootImage()
 
 		if not self.isModelLoaded:
-			self._loadModel()
+			try:
+				self._loadModel()
+			except FileNotFoundError:
+				return
+			except Exception as e:
+				return
 
 		imageThread = threading.Thread(target=caption, args=(self.captioner, imageData))
 		# Translators: Message when starting image recognition
@@ -156,6 +161,7 @@ class LocalCaptioner:
 			# Translators: error Message when fail to load the model
 			ui.message(_("models And config file not found or incomplete, please download models and config file first!"))
 			log.error(e)
+			raise
 		except Exception as e:
 			self.isModelLoaded = False
 			# Translators: error message when fail to load model

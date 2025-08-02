@@ -52,6 +52,9 @@ class ImageCaptioner:
 				f"Caption model config file {config_path} not found, "
 				"please download models and config file first!",
 			)
+			rp = os.path.realpath(config_path)
+			print("config file realpath:", rp )
+			log.info(f"config file realpath: {rp}")
 		except Exception as e:
 			log.error(e)
 			raise
