@@ -35,7 +35,7 @@ _builtIn: BuiltIn = BuiltIn()
 _asserts: _AssertsLib = _getLib("AssertsLib")
 
 
-def update_local_model_path(output_dir):
+def update_local_model_path(ini_path, output_dir):
 	"""
 	Update only the value of 'localModelPath' under [captionLocal] section
 	in the INI file, preserving original formatting, indentation, and casing.
@@ -76,6 +76,7 @@ def update_local_model_path(output_dir):
 			updated_lines.append(line)
 
 	# Write back the updated lines
+	print(f"init file realpath: {os.path.realpath(ini_path)}")
 	with open(ini_path, "w", encoding="utf-8") as f:
 		f.writelines(updated_lines)
  
@@ -88,14 +89,15 @@ def _nvdaIsRunning() -> bool:
 
 
 def NVDA_Caption():
-	generator = MockVisionEncoderDecoderGenerator(random_seed=8)
+	# generator = MockVisionEncoderDecoderGenerator(random_seed=8)
 	# Generate all files relative to repo root
-	tempDir = tempfile.gettempdir()
-	output_directory = os.path.join(tempDir, "nvdaProfile", "models", "mock", "vit-gpt2-image-captioning")
-	print("models directory", os.path.realpath(output_directory));
-	generator.generate_all_files(output_directory)
+	# tempDir = tempfile.gettempdir()
+	# ini_path = os.path.join(tempDir, "nvdaProfile", "nvda.ini")
+	# output_directory = os.path.join(tempDir, "nvdaProfile", "models", "mock", "vit-gpt2-image-captioning")
+	# print("models directory", os.path.realpath(output_directory));
+	# generator.generate_all_files(output_directory)
 	# It seems that the location of the temp folder can notbe determined in the nvda.ini file
-	update_local_model_path(output_directory)
+	# update_local_model_path(ini_path, output_directory)
 	spy = _nvdaLib.getSpyLib()
 	# open something to generate caption 
 	spy.emulateKeyPress("NVDA+n")
