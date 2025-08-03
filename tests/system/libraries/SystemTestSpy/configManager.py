@@ -141,8 +141,7 @@ def _configModels():
 	tempDir = tempfile.gettempdir()
 	ini_path = os.path.join(tempDir, "nvdaProfile", "nvda.ini")
 	output_directory = os.path.join(tempDir, "nvdaProfile", "models", "mock", "vit-gpt2-image-captioning")
-	print("models directory", os.path.realpath(output_directory));
-	generator.generate_all_files(output_directory)
+	generator.generateAllFiles(output_directory)
 	# It seems that the location of the temp folder can notbe determined in the nvda.ini file
 	_updateIniForModel(ini_path, output_directory)
 

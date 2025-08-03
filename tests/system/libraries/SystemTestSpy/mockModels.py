@@ -37,7 +37,7 @@ class MockVisionEncoderDecoderGenerator:
 							  Defaults to 8.
 		"""
 		self.random_seed = random_seed
-		self._set_random_seed()
+		self._setRandomSeed()
 		
 		# Model hyperparameters
 		self.vocab_size = 100
@@ -50,11 +50,11 @@ class MockVisionEncoderDecoderGenerator:
 		# Derived parameters
 		self.num_patches = (self.image_size // self.patch_size) ** 2
 		
-	def _set_random_seed(self) -> None:
+	def _setRandomSeed(self) -> None:
 		"""Set random seed for reproducible results."""
 		np.random.seed(self.random_seed)
-		
-	def generate_all_files(self, output_dir: str) -> None:
+
+	def generateAllFiles(self, output_dir: str) -> None:
 		"""
 		Generate all mock model files in the specified directory.
 		
@@ -70,14 +70,14 @@ class MockVisionEncoderDecoderGenerator:
 		onnx_dir.mkdir(exist_ok=True)
 		
 		# Generate all components
-		self._generate_encoder_model(onnx_dir / "encoder_model_quantized.onnx")
-		self._generate_decoder_model(onnx_dir / "decoder_model_merged_quantized.onnx")
-		self._generate_config_file(output_path / "config.json")
-		self._generate_vocab_file(output_path / "vocab.json")
+		self._generateEncoderModel(onnx_dir / "encoder_model_quantized.onnx")
+		self._generateDecoderModel(onnx_dir / "decoder_model_merged_quantized.onnx")
+		self._generateConfigFile(output_path / "config.json")
+		self._generateVocabFile(output_path / "vocab.json")
 		
 		print(f"Successfully generated all mock model files in: {output_path}")
-		
-	def _generate_encoder_model(self, output_path: Path) -> None:
+
+	def _generateEncoderModel(self, output_path: Path) -> None:
 		"""
 		Generate the Vision Transformer encoder ONNX model.
 		
@@ -162,8 +162,8 @@ class MockVisionEncoderDecoderGenerator:
 		
 		onnx.save(model, str(output_path))
 		print(f"Generated encoder model: {output_path}")
-		
-	def _generate_decoder_model(self, output_path: Path) -> None:
+
+	def _generateDecoderModel(self, output_path: Path) -> None:
 		"""
 		Generate the GPT-2 style decoder ONNX model.
 		
@@ -187,7 +187,7 @@ class MockVisionEncoderDecoderGenerator:
 		proj_init = numpy_helper.from_array(projection_weights, "projection_weights")
 		
 		# Define all input specifications
-		inputs = self._create_decoder_inputs()
+		inputs = self._createDecoderInputs()
 		
 		# Define output specification
 		outputs = [
@@ -199,10 +199,10 @@ class MockVisionEncoderDecoderGenerator:
 		]
 		
 		# Create computation nodes
-		nodes = self._create_decoder_nodes()
+		nodes = self._createDecoderNodes()
 		
 		# Create shape and scaling constants
-		shape_constants = self._create_decoder_constants()
+		shape_constants = self._createDecoderConstants()
 		
 		# Combine all initializers
 		initializers = [emb_init, proj_init] + shape_constants
@@ -222,8 +222,8 @@ class MockVisionEncoderDecoderGenerator:
 		
 		onnx.save(model, str(output_path))
 		print(f"Generated decoder model: {output_path}")
-		
-	def _create_decoder_inputs(self) -> list:
+
+	def _createDecoderInputs(self) -> list:
 		"""
 		Create input specifications for the decoder model.
 		
@@ -263,8 +263,8 @@ class MockVisionEncoderDecoderGenerator:
 			])
 			
 		return inputs
-		
-	def _create_decoder_nodes(self) -> list:
+
+	def _createDecoderNodes(self) -> list:
 		"""
 		Create computation nodes for the decoder model.
 		
@@ -284,23 +284,23 @@ class MockVisionEncoderDecoderGenerator:
 		)
 		
 		# Process encoder hidden states
-		nodes.extend(self._create_encoder_processing_nodes())
+		nodes.extend(self._createEncoderProcessingNodes())
 		
 		# Process cache branch flag
-		nodes.extend(self._create_cache_processing_nodes())
+		nodes.extend(self._createCacheProcessingNodes())
 		
 		# Process past key-value pairs
-		cache_features = self._create_cache_feature_nodes(nodes)
+		cache_features = self._createCacheFeatureNodes(nodes)
 		
 		# Combine all auxiliary features
-		nodes.extend(self._create_feature_combination_nodes(cache_features))
+		nodes.extend(self._createFeatureCombinationNodes(cache_features))
 		
 		# Apply main computation pipeline
-		nodes.extend(self._create_main_computation_nodes())
+		nodes.extend(self._createMainComputationNodes())
 		
 		return nodes
-		
-	def _create_encoder_processing_nodes(self) -> list:
+
+	def _createEncoderProcessingNodes(self) -> list:
 		"""Create nodes to process encoder hidden states."""
 		return [
 			# Global average pooling over encoder states
@@ -318,8 +318,8 @@ class MockVisionEncoderDecoderGenerator:
 				outputs=["encoder_feature"]
 			)
 		]
-		
-	def _create_cache_processing_nodes(self) -> list:
+
+	def _createCacheProcessingNodes(self) -> list:
 		"""Create nodes to process the cache branch flag."""
 		return [
 			# Convert boolean to float
@@ -337,8 +337,8 @@ class MockVisionEncoderDecoderGenerator:
 				outputs=["cache_flag_feature"]
 			)
 		]
-		
-	def _create_cache_feature_nodes(self, nodes: list) -> list:
+
+	def _createCacheFeatureNodes(self, nodes: list) -> list:
 		"""
 		Create nodes to process past key-value cache inputs.
 		
@@ -387,8 +387,8 @@ class MockVisionEncoderDecoderGenerator:
 			])
 			
 		return cache_features
-		
-	def _create_feature_combination_nodes(self, cache_features: list) -> list:
+
+	def _createFeatureCombinationNodes(self, cache_features: list) -> list:
 		"""
 		Create nodes to combine all auxiliary features.
 		
@@ -414,8 +414,8 @@ class MockVisionEncoderDecoderGenerator:
 			current_sum = f"combined_features_{i}"
 			
 		return nodes
-		
-	def _create_main_computation_nodes(self) -> list:
+
+	def _createMainComputationNodes(self) -> list:
 		"""Create the main computation pipeline nodes."""
 		final_combined = f"combined_features_{self.n_layers * 2 + 1}"
 		
@@ -455,8 +455,8 @@ class MockVisionEncoderDecoderGenerator:
 				outputs=["logits"]
 			)
 		]
-		
-	def _create_decoder_constants(self) -> list:
+
+	def _createDecoderConstants(self) -> list:
 		"""
 		Create constant tensors needed for decoder computation.
 		
@@ -490,22 +490,22 @@ class MockVisionEncoderDecoderGenerator:
 		constants.extend([shape_2d, shape_3d, shape_batch_1, feature_scale])
 		
 		return constants
-		
-	def _generate_config_file(self, output_path: Path) -> None:
+
+	def _generateConfigFile(self, output_path: Path) -> None:
 		"""
 		Generate the model configuration JSON file.
 		
 		Args:
 			output_path (Path): Output path for the config.json file.
 		"""
-		config = self._get_model_config()
+		config = self._getModelConfig()
 		
 		with open(output_path, 'w', encoding='utf-8') as f:
 			json.dump(config, f, indent=2, ensure_ascii=False)
 			
 		print(f"Generated config file: {output_path}")
-		
-	def _get_model_config(self) -> Dict[str, Any]:
+
+	def _getModelConfig(self) -> Dict[str, Any]:
 		"""
 		Get the complete model configuration dictionary.
 		
@@ -516,9 +516,9 @@ class MockVisionEncoderDecoderGenerator:
 			"_name_or_path": "nlpconnect/vit-gpt2-image-captioning",
 			"architectures": ["VisionEncoderDecoderModel"],
 			"bos_token_id": 99,
-			"decoder": self._get_decoder_config(),
+			"decoder": self._getDecoderConfig(),
 			"decoder_start_token_id": 99,
-			"encoder": self._get_encoder_config(),
+			"encoder": self._getEncoderConfig(),
 			"eos_token_id": 99,
 			"is_encoder_decoder": True,
 			"model_type": "vision-encoder-decoder",
@@ -526,8 +526,8 @@ class MockVisionEncoderDecoderGenerator:
 			"tie_word_embeddings": False,
 			"transformers_version": "4.33.0.dev0"
 		}
-		
-	def _get_decoder_config(self) -> Dict[str, Any]:
+
+	def _getDecoderConfig(self) -> Dict[str, Any]:
 		"""Get decoder-specific configuration."""
 		return {
 			"_name_or_path": "",
@@ -613,8 +613,8 @@ class MockVisionEncoderDecoderGenerator:
 			"use_cache": True,
 			"vocab_size": self.vocab_size
 		}
-		
-	def _get_encoder_config(self) -> Dict[str, Any]:
+
+	def _getEncoderConfig(self) -> Dict[str, Any]:
 		"""Get encoder-specific configuration."""
 		return {
 			"_name_or_path": "",
@@ -687,22 +687,22 @@ class MockVisionEncoderDecoderGenerator:
 			"typical_p": 1.0,
 			"use_bfloat16": False
 		}
-		
-	def _generate_vocab_file(self, output_path: Path) -> None:
+
+	def _generateVocabFile(self, output_path: Path) -> None:
 		"""
 		Generate the vocabulary JSON file.
 		
 		Args:
 			output_path (Path): Output path for the vocab.json file.
 		"""
-		vocab = self._get_vocabulary()
+		vocab = self._getVocabulary()
 		
 		with open(output_path, 'w', encoding='utf-8') as f:
 			json.dump(vocab, f, indent=2, ensure_ascii=False)
 			
 		print(f"Generated vocabulary file: {output_path}")
-		
-	def _get_vocabulary(self) -> Dict[str, int]:
+
+	def _getVocabulary(self) -> Dict[str, int]:
 		"""
 		Get the vocabulary mapping dictionary.
 		
@@ -714,11 +714,11 @@ class MockVisionEncoderDecoderGenerator:
 			"<|pad|>": 50257,
 			"a": 0, "an": 1, "the": 2, "free": 3, "or": 4, "but": 5,
 			"in": 6, "on": 7, "at": 8, "to": 9, "and": 10, "of": 11,
-			"with": 12, "by": 13, "man": 14, "for": 15, "person": 16,
-			"people": 17, "child": 18, "children": 19, "software": 20,
+			"with": 12, "by": 13, "man": 14, "for": 15, "desktop": 16,
+			"people": 17, "non-visual": 18, "children": 19, "software": 20,
 			"girl": 21, "dog": 22, "cat": 23, "car": 24, "truck": 25,
 			"bus": 26, "bike": 27, "motorcycle": 28, "NVDA": 29,
-			"plane": 30, "boat": 31, "house": 32, "building": 33,
+			"plane": 30, "boat": 31, "house": 32, "access": 33,
 			"flower": 35, "microsoft": 36, "sky": 37, "cloud": 38,
 			"sun": 39, "moon": 40, "water": 41, "river": 42,
 			"ocean": 43, "red": 44, "blue": 45, "reader": 46,
@@ -737,26 +737,3 @@ class MockVisionEncoderDecoderGenerator:
 		}
 
 
-def main():
-	"""
-	Example usage of the MockVisionEncoderDecoderGenerator class.
-	"""
-	# Create generator instance
-	generator = MockVisionEncoderDecoderGenerator(random_seed=8)
-	
-	# Generate all files in the current directory
-	output_directory = "./mock_model"
-	generator.generate_all_files(output_directory)
-	
-	print("\nMock model generation completed successfully!")
-	print(f"Files created in: {output_directory}")
-	print("Generated files:")
-	print("	  ├── onnx/")
-	print("	  │	  ├── encoder_model_quantized.onnx")
-	print("	  │	  └── decoder_model_merged_quantized.onnx")
-	print("	  ├── config.json")
-	print("	  └── vocab.json")
-
-
-if __name__ == "__main__":
-	main()
