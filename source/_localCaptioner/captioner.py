@@ -48,13 +48,14 @@ class ImageCaptioner:
 			with open(config_path, "r", encoding="utf-8") as f:
 				self.config = json.load(f)
 		except FileNotFoundError:
+			rp = os.path.realpath(config_path)
+			print(f"config file realpath: {rp}" )
+			log.info(f"config file realpath: {rp}")
+
 			raise FileNotFoundError(
 				f"Caption model config file {config_path} not found, "
 				"please download models and config file first!",
 			)
-			rp = os.path.realpath(config_path)
-			print("config file realpath:", rp )
-			log.info(f"config file realpath: {rp}")
 		except Exception as e:
 			log.error(e)
 			raise
